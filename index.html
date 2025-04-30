@@ -422,7 +422,8 @@ const resp = await fetch('https://whileitdies.kott-png14.workers.dev', {
     }
 
     const json = await resp.json();
-    const content = json.content[0].text;
+    const content = json.choices?.[0]?.message?.content || '';
+
 
     // Extract JSON from response (sometimes Claude might wrap it in ```json blocks)
     let jsonContent = content;
