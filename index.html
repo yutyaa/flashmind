@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FlashMind – Interactive Flashcards + AI Quiz</title>
+  <!-- Tailwind (CDN for speed of demo) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' };</script>
+  <style>
+    /* --- simple 3‑D flip effect --- */
+    .flip-card { perspective: 1000px; }
+    .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform .6s; transform-style: preserve-3d; }
+    .flip-card.flip .flip-card-inner { transform: rotateY(180deg); }
+    .flip-card-front,
+    .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 1rem; }
+    .flip-card-back { transform: rotateY(180deg); }
+    .front-q { position: absolute; bottom: 0; left: 0; right: 0; padding: .35rem; background: rgba(0,0,0,.55); color: #fff; text-align: center; font-weight: 600; border-bottom-left-radius: 1rem; border-bottom-right-radius: 1rem; }
+    .fade { animation: fade .3s ease; }
+    @keyframes fade { from { opacity: 0; transform: scale(.95);} to { opacity:1; transform: scale(1);} }
+  </style>
+</head>
+<!-- Congratulation Modal -->
+<div id="completeModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+  <div class="bg-white dark:bg-slate-800 p-6 rounded-lg w-80 space-y-4 shadow-lg text-center">
+    <h2 class="text-xl font-bold text-green-600">🎉 Well Done!</h2>
+    <p class="text-sm">You’ve completed all cards in this topic!</p>
+    <button id="resetProgress" class="w-full py-2 bg-red-500 text-white rounded">Reset Progress</button>
+    <button id="closeModal" class="w-full py-2 bg-gray-300 dark:bg-slate-600 rounded">Close</button>
+  </div>
+</div>
+
+<body class="min-h-screen flex flex-col bg-gradient-to-b from-sky-50 to-emerald-100 dark:from-gray-900 dark:to-slate-800 text-gray-900 dark:text-gray-100">
+  <!-- Overlay (for left sidebar) -->
+  <div id="overlay" class="fixed inset-0 bg-black/40 hidden z-40"></div>
+
+  <!-- Left Sidebar (Filters) -->
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-800 -translate-x-full transition-transform z-50 p-6 space-y-5">
+    <h2 class="text-xl font-bold">Filters</h2>
+    <div>
+      <label class="text-sm">Subject</label>
+      <select id="subjectSelect" class="w-full mt-1 px-2 py-1 rounded border bg-white dark:bg-slate-700"></select>
+    </div>
+    <div>
+      <label class="text-sm">Topic</label>
+      <select id="topicSelect" class="w-full mt-1 px-2 py-1 rounded border bg-white dark:bg-slate-700"></select>
+    </div>
+    <div>
+      <label class="text-sm">Level</label>
+      <select id="levelSelect" class="w-full mt-1 px-2 py-1 rounded border bg-white dark:bg-slate-700">
+        <option>All</option>
+        <option>Beginner</option>
+        <option>Intermediate</option>
+        <option>Advanced</option>
+      </select>
+    </div>
+    <button id="sidebarClose" class="w-full py-2 bg-gray-300 dark:bg-slate-600 rounded mt-4">Close</button>
+  </aside>
+
+  <!-- Right Sidebar (AI Quiz) -->
+  <aside id="quizPanel" class="fixed inset-y-0 right-0 w-72 bg-white dark:bg-slate-800 translate-x-full transition-transform z-50 p-4 space-y-4 overflow-y-auto">
+    <h2 class="text-xl font-bold flex justify-between items-center">
+      Quiz <button id="quizClose" class="text-lg">✖</button>
+    </h2>
+    <button id="quizGenerate" class="w-full py-2 bg-indigo-600 text-white rounded">🧩 Generate Quiz</button>
+    <div id="quizArea" class="space-y-3 text-sm"></div>
+  </aside>
+
+  <!-- Header -->
+  <header class="flex items-center justify-between p-4 bg-white/70 dark:bg-slate-900/70 backdrop-blur shadow z-30">
+    <div class="flex items-center gap-2">
+      <button id="sidebarToggle" class="px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded" title="Menu">☰</button>
+      <h1 class="text-2xl font-bold">FlashMind</h1>
+    </div>
+    <div class="flex items-center gap-2 text-sm">
+      <button id="darkToggle" class="px-3 py-1 rounded bg-gray-800 text-white" title="Theme">🌙</button>
+      <button id="quizToggle" class="px-3 py-1 rounded bg-orange-600 text-white" title="Open Quiz">🧩</button>
+      <button id="importBtn" class="px-3 py-1 rounded bg-blue-600 text-white" title="Import JSON">📂</button>
+      <button id="exportBtn" class="px-3 py-1 rounded bg-teal-600 text-white" title="Export JSON">💾</button>
+    </div>
+  </header>
+
+  <!-- Main / Flashcard stage -->
+  <main class="flex-grow flex flex-col items-center justify-center p-6">
+    <div id="cardContainer" class="w-[500px] h-[400px] relative"></div>
+    <div class="mt-4 flex items-center gap-4">
+      <button id="prevBtn" class="px-4 py-2 bg-indigo-500 text-white rounded">Prev</button>
+      <span id="counter" class="font-semibold select-none">0 / 0</span>
+      <button id="nextBtn" class="px-4 py-2 bg-indigo-500 text-white rounded">Next</button>
+      <button id="knowBtn" class="px-4 py-2 bg-green-500 text-white rounded" title="Mark learned">✔️</button>
+    </div>
+    <div id="progressWrap" class="mt-3 w-64 bg-gray-200 dark:bg-gray-700 rounded-full h-3 hidden">
+      <div id="progressBar" class="h-full bg-green-500 rounded-full"></div>
+    </div>
+  </main>
+
+  <!-- Import Modal -->
+  <div id="importModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-slate-800 p-6 rounded-lg w-96 space-y-4 shadow-lg max-h-[80vh] overflow-y-auto">
+      <h2 class="text-xl font-semibold">Import Flashcards</h2>
+      <p class="text-sm">Upload a <code>.json</code> file in the following structure:</p>
+      <pre class="bg-gray-100 dark:bg-slate-700 p-3 rounded text-xs overflow-auto">{
+  "English": {
+    "Animals": [
+      {
+        "question": "What's this?",
+        "answer"  : "Cat",
+        "img"     : "https://...",
+        "level"   : "Beginner"
+      }
+    ]
+  }
+}</pre>
+      <div class="flex justify-end gap-2 text-sm">
+        <button id="importCancel" class="px-3 py-1 bg-gray-300 dark:bg-slate-600 rounded">Cancel</button>
+        <button id="chooseFile" class="px-3 py-1 bg-blue-600 text-white rounded">Choose File</button>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="fileInput" accept="application/json" class="hidden" />
+
+  <!-- —— OpenAI key (hard‑coded per assignment, DO NOT SHARE PUBLICLY in production) —— -->
+  <script>
+    const KEY = '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';
+  </script>
+
+  <!-- Core Logic -->
+  <script>
+    /* --------------------------------------------------
+       Data & helpers
+    -------------------------------------------------- */
+    const initialData = {
+  English: {
+    Animals: [
+      {
+        question: 'What animal is this?',
+        answer: 'Cat',
+        img: 'https://images.unsplash.com/photo-1518791841217-8f162f1e1131?auto=format&fit=crop&w=600&q=60',
+        level: 'Beginner'
+      },
+      {
+        question: 'Identify this animal',
+        answer: 'Elephant',
+        img: 'https://cdn.britannica.com/02/152302-050-1A984FCB/African-savanna-elephant.jpg',
+        level: 'Intermediate'
+      },
+      {
+        question: 'Name this marsupial native to Australia',
+        answer: 'Koala',
+        img: 'https://upload.wikimedia.org/wikipedia/commons/4/49/Koala_climbing_tree.jpg',
+        level: 'Advanced'
+      }
+    ],
+    Colors: [
+      {
+        question: 'What color is this?',
+        answer: 'Red',
+        img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Red_flag.svg/1200px-Red_flag.svg.png',
+        level: 'Beginner'
+      },
+      {
+        question: 'What color is associated with calmness?',
+        answer: 'Blue',
+        img: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQqT3mmpKLeOYQwgVCk6Hjk1Q_54QM_6968jw&s',
+        level: 'Intermediate'
+      },
+      {
+        question: 'Which color is made by mixing blue and yellow?',
+        answer: 'Green',
+        img: 'https://content.nebo.by/photos/stroymaterialy/big/webp/RAL-6018-ZHelto-zelyonii.webp',
+        level: 'Advanced'
+      }
+    ]
+  },
+  Math: {
+    'Times Tables': [
+      {
+        question: '6 × 7',
+        answer: '42',
+        img: 'https://dummyimage.com/600x400/7e9af4/ffffff&text=6×7',
+        level: 'Beginner'
+      },
+      {
+        question: '9 × 12',
+        answer: '108',
+        img: 'https://dummyimage.com/600x400/7e9af4/ffffff&text=9×12',
+        level: 'Intermediate'
+      },
+      {
+        question: '13 × 14',
+        answer: '182',
+        img: 'https://dummyimage.com/600x400/7e9af4/ffffff&text=13×14',
+        level: 'Advanced'
+      }
+    ],
+    Geometry: [
+      {
+        question: 'What shape has three sides?',
+        answer: 'Triangle',
+        img: 'https://img.freepik.com/premium-vector/education-material-icon-vector-illustration_1253202-133487.jpg',
+        level: 'Beginner'
+      },
+      {
+        question: 'Shape with four equal sides and 90° angles?',
+        answer: 'Square',
+        img: 'https://img.freepik.com/free-vector/gold-frames-set_78370-1878.jpg',
+        level: 'Intermediate'
+      },
+      {
+        question: 'What is the sum of interior angles of a pentagon?',
+        answer: '540°',
+        img: 'https://media.geeksforgeeks.org/wp-content/uploads/20240528164954/pentagon.webp',
+        level: 'Advanced'
+      }
+    ]
+  },
+  Geography: {
+    'Flags of the World': [
+      {
+        question: 'Which country has this flag?',
+        answer: 'Japan',
+        img: 'https://upload.wikimedia.org/wikipedia/en/9/9e/Flag_of_Japan.svg',
+        level: 'Beginner'
+      },
+      {
+        question: 'Which country has this green-yellow-blue flag?',
+        answer: 'Brazil',
+        img: 'https://upload.wikimedia.org/wikipedia/en/0/05/Flag_of_Brazil.svg',
+        level: 'Intermediate'
+      },
+      {
+        question: 'Which country uses this red maple leaf?',
+        answer: 'Canada',
+        img: 'https://upload.wikimedia.org/wikipedia/commons/c/cf/Flag_of_Canada.svg',
+        level: 'Advanced'
+      }
+    ],
+    Landmarks: [
+      {
+        question: 'What is this tower in Paris?',
+        answer: 'Eiffel Tower',
+        img: 'https://cdn.pixabay.com/photo/2018/04/25/09/26/eiffel-tower-3349075_1280.jpg',
+        level: 'Beginner'
+      },
+      {
+        question: 'This wall spans thousands of kilometers in Asia',
+        answer: 'Great Wall of China',
+        img: 'https://img.freepik.com/free-photo/great-wall_1359-1016.jpg?t=st=1745998838~exp=1746002438~hmac=f5a72f3b0e7de5233a2df626e533a73328b6d78a46495b6e80985951a7e7b2cc&w=1380',
+        level: 'Intermediate'
+      },
+      {
+        question: 'Which famous statue stands in New York Harbor?',
+        answer: 'Statue of Liberty',
+        img: 'https://cdn.pixabay.com/photo/2017/07/13/17/45/statue-of-liberty-2501264_1280.jpg',
+        level: 'Advanced'
+      }
+    ]
+  },
+  Physics: {
+    'Forces and Motion': [
+      {
+        question: 'Who formulated the laws of motion?',
+        answer: 'Isaac Newton',
+        img: 'https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcS6N_1dd7j2OCDWrSWWXzteuTH8Sag3gKPFOdFoa3diCN8rtLjl19A0b6Zf-OM8_spQZu1dhRRs-n4hPqi1LlNljsxPNaJUm9BBVkCDPIo',
+        level: 'Beginner'
+      },
+      {
+        question: 'What is the unit of force?',
+        answer: 'Newton',
+        img: 'https://media.istockphoto.com/id/180130146/vector/quantum-physics-on-a-blackboard.jpg?s=612x612&w=0&k=20&c=V-VMTt5_ZJsAJoQWpfm12iIEkelKv2ZeaDTDRuxfjNw=',
+        level: 'Intermediate'
+      },
+      {
+        question: 'What’s the name for the force opposing motion?',
+        answer: 'Friction',
+        img: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRBRYivy1LSIxsI5TUCOB-L90zYO7S2bVs8KA&s',
+        level: 'Advanced'
+      }
+    ],
+    'Light and Optics': [
+      {
+        question: 'What is the speed of light?',
+        answer: '300,000 km/s',
+        img: 'https://media.istockphoto.com/id/1355845521/ru/%D0%B2%D0%B5%D0%BA%D1%82%D0%BE%D1%80%D0%BD%D0%B0%D1%8F/%D1%84%D0%BE%D0%BD%D0%B0%D1%80%D0%B8%D0%BA-%D1%84%D0%B0%D0%BA%D0%B5%D0%BB-%D1%80%D1%83%D1%87%D0%BD%D0%B0%D1%8F-%D0%B8%D0%BB%D0%BB%D1%8E%D1%81%D1%82%D1%80%D0%B0%D1%86%D0%B8%D1%8F-%D0%BA%D0%B0%D1%80%D0%BC%D0%B0%D0%BD%D0%BD%D1%8B%D0%B9-%D0%B2%D0%B5%D0%BA%D1%82%D0%BE%D1%80%D0%BD%D1%8B%D0%B9-%D1%81%D0%B2%D0%B5%D1%82-%D0%BB%D0%B0%D0%BC%D0%BF%D1%8B-%D1%84%D0%BE%D0%BD%D0%B0%D1%80%D1%8C-%D0%B4%D0%B8%D0%B7%D0%B0%D0%B9%D0%BD-%D1%84%D0%B0%D0%BA%D0%B5%D0%BB.jpg?s=612x612&w=0&k=20&c=7kP30yarAWHfy5GzxxxINjr4iDju1gMPBOy914dln8E=',
+        level: 'Beginner'
+      },
+      {
+        question: 'What happens when light bends in water?',
+        answer: 'Refraction',
+        img: 'https://ulight.ru/uploads/images/storage/original/b952fa4ecb92c26564716742df9fea21.jpeg',
+        level: 'Intermediate'
+      },
+      {
+        question: 'What’s the splitting of white light into colors called?',
+        answer: 'Dispersion',
+        img: 'https://spacegid.com/wp-content/uploads/2018/05/dispersion.png',
+        level: 'Advanced'
+      }
+    ]
+  }
+};
+
+
+
+    const data = initialData;           // flashcard DB
+    const learned = {};                // learned tracker
+
+    // current filters / state
+    let subject = 'English';
+    let topic   = 'Animals';
+    let level   = 'All';
+    let idx     = 0;                   // current card index
+
+    const $ = (id) => document.getElementById(id);
+
+    const cards = () => data[subject][topic].filter(c => level === 'All' || c.level === level);
+
+    /* --------------------------------------------------
+       UI helpers
+    -------------------------------------------------- */
+    function fill(selectEl, values, valueToSet) {
+      selectEl.innerHTML = '';
+      values.forEach(v => selectEl.appendChild(new Option(v, v)));
+      selectEl.value = valueToSet;
+    }
+
+    function updateProgress() {
+  const list = cards();
+  const wrap = $('progressWrap');
+  if (!list.length) {
+    wrap.classList.add('hidden');
+    return;
+  }
+
+  wrap.classList.remove('hidden');
+  const done = list.filter(x => learned[`${subject}|${topic}|${x.answer}`]).length;
+  $('progressBar').style.width = `${done / list.length * 100}%`;
+
+  // Если прогресс полный — показать модалку
+  if (done === list.length && list.length > 0) {
+    $('completeModal').classList.remove('hidden');
+  }
+}
+
+
+    function showCard() {
+      const list = cards();
+      const container = $('cardContainer');
+      if (!list.length) {
+        container.innerHTML = '<p class="text-center text-sm text-gray-500">No cards</p>';
+        $('counter').textContent = '0 / 0';
+        updateProgress();
+        return;
+      }
+      idx = (idx + list.length) % list.length;   // keep idx in range
+      const card = list[idx];
+      $('counter').textContent = `${idx + 1} / ${list.length}`;
+
+      // update know button icon
+      $('knowBtn').textContent = learned[`${subject}|${topic}|${card.answer}`] ? '❌' : '✔️';
+
+      container.innerHTML = `
+        <div class='flip-card w-full h-full fade' id='flash'>
+          <div class='flip-card-inner rounded-xl shadow border'>
+            <div class='flip-card-front'>
+              <img src='${card.img}' class='object-cover w-full h-full rounded-xl'>
+              <div class='front-q'>${card.question}</div>
+            </div>
+            <div class='flip-card-back bg-indigo-600 text-white flex items-center justify-center p-4'>
+              <h2 class='text-2xl font-bold'>${card.answer}</h2>
+            </div>
+          </div>
+        </div>`;
+
+      $('flash').onclick = () => $('flash').classList.toggle('flip');
+      updateProgress();
+    }
+
+    /* --------------------------------------------------
+   AI Quiz generation
+-------------------------------------------------- */
+async function genQuiz() {
+  const quizArea = $('quizArea');
+  quizArea.innerHTML = '⏳ Generating...';
+  try {
+    // Prepare content to send to Claude
+    const prompt = `Create 5 multiple‑choice questions (4 options each) about ${subject} – ${topic}.
+    For each question, also provide an explanation for why the correct answer is right.
+    Return as JSON array with this format:
+    [
+      {
+        "q": "question text",
+        "options": ["option1", "option2", "option3", "option4"],
+        "answerIndex": 0,
+        "explanation": "Explanation of why the answer is correct"
+      }
+    ]`;
+
+    // Call Anthropic Claude API
+    const resp = await fetch('http://localhost:3000/quiz', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+  model: 'claude-3-haiku-20240307',
+  max_tokens: 2000,
+  messages: [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: prompt
+        }
+      ]
+    }
+  ]
+})
+
+    });
+
+    if (!resp.ok) {
+      const errorData = await resp.json();
+      throw new Error(errorData.error?.message || resp.statusText);
+    }
+
+    const json = await resp.json();
+    const content = json.content[0].text;
+
+    // Extract JSON from response (sometimes Claude might wrap it in ```json blocks)
+    let jsonContent = content;
+    if (content.includes('```json')) {
+      jsonContent = content.split('```json')[1].split('```')[0].trim();
+    } else if (content.includes('```')) {
+      jsonContent = content.split('```')[1].split('```')[0].trim();
+    }
+
+    const arr = JSON.parse(jsonContent);
+    renderQuiz(arr);
+  } catch (e) {
+    quizArea.textContent = 'Error: ' + e.message;
+    console.error('Quiz generation error:', e);
+  }
+}
+
+function renderQuiz(arr) {
+  const quizArea = $('quizArea');
+  quizArea.innerHTML = '';
+  arr.forEach((q, i) => {
+    const box = document.createElement('div');
+    box.className = 'border rounded p-2 mb-4';
+    box.dataset.answer = q.answerIndex;
+    box.dataset.explanation = q.explanation || '';
+
+    let inner = `<p class='font-medium mb-1'>${i + 1}. ${q.q}</p>`;
+    q.options.forEach((opt, idx) => {
+      inner += `<button data-idx='${idx}' class='option w-full text-left px-2 py-1 my-0.5 rounded bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600'>${opt}</button>`;
+    });
+
+    // Add hidden explanation div that will be revealed when answering
+    inner += `<div class="explanation mt-2 p-2 rounded bg-blue-50 dark:bg-slate-700 text-sm hidden"></div>`;
+
+    box.innerHTML = inner;
+    quizArea.appendChild(box);
+  });
+  quizArea.querySelectorAll('.option').forEach(btn => btn.onclick = evaluate);
+}
+
+function evaluate(e) {
+  const btn = e.currentTarget;
+  const parent = btn.parentElement;
+  const correct = parent.dataset.answer;
+  const explanation = parent.dataset.explanation;
+
+  // Disable all options
+  parent.querySelectorAll('.option').forEach(b => b.disabled = true);
+
+  // Show correct/incorrect
+  if (btn.dataset.idx === correct) {
+    btn.classList.add('bg-green-400', 'dark:bg-green-600');
+  } else {
+    btn.classList.add('bg-red-400', 'dark:bg-red-600');
+    parent.querySelector(`.option[data-idx='${correct}']`).classList.add('bg-green-400', 'dark:bg-green-600');
+  }
+
+  // Show explanation
+  const explanationDiv = parent.querySelector('.explanation');
+  explanationDiv.classList.remove('hidden');
+  explanationDiv.innerHTML = explanation;
+}
+
+    /* --------------------------------------------------
+       DOM Ready & Events
+    -------------------------------------------------- */
+    document.addEventListener('DOMContentLoaded', () => {
+      /* theme */
+      const html = document.documentElement;
+      if (localStorage.theme === 'dark') html.classList.add('dark');
+      $('darkToggle').onclick = () => {
+        html.classList.toggle('dark');
+        localStorage.theme = html.classList.contains('dark') ? 'dark' : 'light';
+        $('closeModal').onclick = () => $('completeModal').classList.add('hidden');
+
+$('resetProgress').onclick = () => {
+  // Удаляем прогресс для текущей темы
+  const list = cards();
+  for (const card of list) {
+    const key = `${subject}|${topic}|${card.answer}`;
+    delete learned[key];
+  }
+  $('completeModal').classList.add('hidden');
+  showCard();
+};
+
+      };
+
+      /* fill selects and defaults */
+      fill($('subjectSelect'), Object.keys(data), subject);
+      fill($('topicSelect'),  Object.keys(data[subject]), topic);
+
+      /* select change */
+      $('subjectSelect').onchange = (e) => {
+        subject = e.target.value;
+        topic   = Object.keys(data[subject])[0];
+        fill($('topicSelect'), Object.keys(data[subject]), topic);
+        idx = 0;
+        showCard();
+      };
+      $('topicSelect').onchange   = (e) => { topic = e.target.value; idx = 0; showCard(); };
+      $('levelSelect').onchange   = (e) => { level = e.target.value; idx = 0; showCard(); };
+
+      /* navigation buttons */
+      $('prevBtn').onclick = () => { idx--; showCard(); };
+      $('nextBtn').onclick = () => { idx++; showCard(); };
+      $('knowBtn').onclick = () => {
+        const list = cards();
+        if (!list.length) return;
+        const key = `${subject}|${topic}|${list[idx].answer}`;
+        learned[key] = !learned[key];
+        showCard();
+      };
+
+      /* left sidebar */
+      $('sidebarToggle').onclick  = () => { $('sidebar').classList.remove('-translate-x-full'); $('overlay').classList.remove('hidden'); };
+      $('sidebarClose').onclick   = $('overlay').onclick = () => { $('sidebar').classList.add('-translate-x-full'); $('overlay').classList.add('hidden'); };
+
+      /* right (quiz) sidebar */
+      $('quizToggle').onclick  = () => { $('quizPanel').classList.remove('translate-x-full'); };
+      $('quizClose').onclick   = () => { $('quizPanel').classList.add('translate-x-full'); };
+      $('quizGenerate').onclick = genQuiz;
+
+      /* import / export */
+      $('importBtn').onclick   = () => { $('importModal').classList.remove('hidden'); };
+      $('importCancel').onclick = () => { $('importModal').classList.add('hidden'); };
+      $('chooseFile').onclick   = () => { $('fileInput').click(); };
+      $('fileInput').onchange   = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const json = JSON.parse(text);
+          Object.assign(data, json);
+          // reset selections
+          subject = Object.keys(data)[0];
+          topic   = Object.keys(data[subject])[0];
+          fill($('subjectSelect'), Object.keys(data), subject);
+          fill($('topicSelect'),  Object.keys(data[subject]), topic);
+          idx = 0;
+          showCard();
+          alert('Imported successfully!');
+          $('importModal').classList.add('hidden');
+        } catch (err) {
+          alert('Invalid JSON file');
+        }
+      };
+
+      $('exportBtn').onclick = () => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url;
+        a.download = 'flashcards.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      /* initial render */
+        // 💡 Modal actions
+  $('closeModal').onclick = () => {
+    $('completeModal').classList.add('hidden');
+  };
+
+  $('resetProgress').onclick = () => {
+    const list = cards();
+    for (const card of list) {
+      const key = `${subject}|${topic}|${card.answer}`;
+      delete learned[key];
+    }
+    $('completeModal').classList.add('hidden');
+    showCard(); // обновим карточку и прогресс
+  };
+
+      showCard();
+    });
+  </script>
+</body>
+</html>
